@@ -12,7 +12,7 @@ La mayoria de IAs responden con guiones fijos o prompts estaticos. Luna hace lo 
 * **Causalidad obligatoria.** Todo cambio de rasgo requiere un `motivo` que cite algo que dijiste. Sin episodio real, no hay delta. La anti-invencion esta reforzada en el prompt y acotada en codigo.
 * **Memoria como historia vivida.** Hechos del usuario, resumen en primera persona, historial reciente, eventos con deltas y emociones, vinculos por entidad y patrones tras repeticion. La compactacion preserva lo importante cuando el historial crece.
 * **Permisos con consentimiento.** Luna puede actuar en tu PC, pero solo lo hace cuando su caracter se lo pide y, para acciones con impacto, te pide confirmacion.
-* **Local y privado.** Todo corre en tu maquina. Sin `openai`, sin `dotenv`, sin keys. Preparado para fine-tuning futuro a partir de `registro/luna.jsonl`.
+* **Local y privado.** Todo corre en tu maquina. Sin `openai`, sin `dotenv`, sin keys. Preparado para fine-tuning con dataset curado a partir de `registro/`.
 
 ## Como funciona
 
@@ -102,6 +102,11 @@ Luna muestra su estado de animo al volver y queda escuchando en `Tu:`.
 | `/recuerdos` | Hechos que Luna recuerda de ti |
 | `/psique` | Rasgos actuales vs base con causas, vinculos, patrones y ultimos episodios |
 | `/explica <rasgo>` | Por que tiene tal valor un rasgo concreto (ej. `/explica confianza`) |
+| `/buena` `👍` | Marca la ultima respuesta como buena (va a `evaluado/aprobado.jsonl`) |
+| `/mala` `👎` | Marca la ultima respuesta como mala (va a `evaluado/rechazado.jsonl`) |
+| `/valorar 1-5` | Valoracion rapida 1-5 (4-5 aprueba, 1-3 rechaza) |
+| `/corregir <texto>` | Corrige la ultima respuesta: guarda `respuesta_original` + `respuesta_corregida` como ejemplo aprobado |
+| `/dataset` | Genera `registro/dataset/train.jsonl` + `validation.jsonl` a partir de lo aprobado |
 | `/reset` | Borra toda la memoria y vuelve a la psique base |
 | `/salir` | Guarda y cierra |
 
@@ -147,28 +152,108 @@ Cambiar de modelo es solo cambiar `modelo.modelo` (ej. `qwen2.5:7b` es mas rapid
 ## Estructura
 
 ```
-index.js      # orquestador, prompt, conversar(), comandos
-psique.js     # motor de rasgos, episodios, vinculos, patrones
-control.js    # acciones reales sobre Windows
-modelo.js     # cliente Ollama (unico punto de acceso al LLM)
-config.json   # personalidad, modelo, psique, rasgos iniciales
-memoria.json  # estado persistente (gitignored, privado)
-registro/luna.jsonl  # bitacora JSONL por turno para fine-tuning (gitignored)
+index.js                      # orquestador, prompt, conversar(), comandos
+psique.js                     # motor de rasgos, episodios, vinculos, patrones
+control.js                    # acciones reales sobre Windows
+modelo.js                     # cliente Ollama (unico punto de acceso al LLM)
+config.json                   # personalidad, modelo, psique, rasgos iniciales
+memoria.json                  # estado persistente (gitignored, privado)
+registro/luna.jsonl           # bitacora legacy (compatibilidad)
+registro/bruto/conversaciones.jsonl  # registro enriquecido por turno (privado)
+registro/evaluado/aprobado.jsonl     # solo respuestas valoradas como buenas
+registro/evaluado/rechazado.jsonl    # respuestas marcadas como malas
+registro/dataset/train.jsonl         # dataset final messages para TRL
+registro/dataset/validation.jsonl    # split validacion
+scripts/preparar_dataset.js   # convierte evaluado -> dataset
 ```
 
 ## Privacidad
 
 Todo es local. `index.js` no importa `openai`, `dotenv` ni lee `.env`. `memoria.json` y `registro/` estan en `.gitignore` a proposito: contienen tu vida privada. No se suben a GitHub. Si clonas el repo en otra maquina, Luna empieza con psique base.
 
-## Fine-tuning futuro
+## Fine-tuning
 
-Cada turno se registra en `registro/luna.jsonl`:
+No se entrena `Si X -> responde Y`. Se entrenan patrones de comportamiento.
 
-```json
-{"fecha":"...","percepcion":"...","interpretacion":"...","emocion":{},"respuesta":"...","accion":{},"asimilacion":{"deltas":[...]},"rasgosPost":{}}
+### Que aprende
+
+* Como habla Luna, cuando ser carinosa/fria, como expresar enojo/celos, como reaccionar ante conflictos, como disculparse, como interpretar situaciones segun su estado, como mantener coherencia de personaje.
+
+### Separacion programa / modelo
+
+```
+           LUNA
+             |
+  +----------+----------+
+  |                     |
+PROGRAMA              MODELO
+Memoria               Lenguaje
+Emociones             Expresion
+Rasgos                Interpretacion
+Percepcion            Comportamiento
+Permisos
 ```
 
-Sirve para entrenar expresion/interpretacion sin reescribir rasgos a mano. Los rasgos siguen evolucionando por la via de `asimilacion` + deltas acotados.
+No se mete `Luna sabe que Daniel juega Valorant` en el modelo. Eso es memoria. Se entrena `cuando Luna recibe estado X + recuerdos relevantes Y, sabe como reaccionar`.
+
+### Pipeline
+
+```
+registro/bruto/conversaciones.jsonl   # todo turno con contexto completo
+        |  /buena /mala /corregir
+        v
+registro/evaluado/aprobado.jsonl      # solo buenas + corregidas (curado por ti)
+        |  /dataset o node scripts/preparar_dataset.js
+        v
+registro/dataset/train.jsonl          # { messages: [system, user, assistant], tipo, meta }
+registro/dataset/validation.jsonl
+        |
+        v
+  Qwen3 8B + LoRA/QLoRA -> Ollama (modelo base intacto, adaptador Luna)
+```
+
+### Formato enriquecido (por turno)
+
+```json
+{
+  "fecha": "2026-08-21T10:30:00",
+  "mensajes": [{ "role": "user", "content": "¿Por que estas tan distante?" }],
+  "contexto": {
+    "percepcion": { "ventanas": "...", "tiempoSinResponder": 7200 },
+    "emociones": { "emoción": "tristeza", "intensidad": 6 },
+    "rasgos": { "confianza": 45, "inseguridad": 62, "celos": 35 }
+  },
+  "memoriasRelevantes": ["episodio_21", "episodio_25"],
+  "interpretacion": { "significado": "Daniel ha estado distante", "sentido": "negativo" },
+  "respuesta": "Ultimamente siento que estas distante...",
+  "accion": null,
+  "valoracion": { "aprobada": true, "tipo": "buena" }
+}
+```
+
+Correccion guarda `respuesta_original` + `respuesta_corregida`. Solo lo aprobado entra al dataset. Sin valoracion no hay entrenamiento de basura.
+
+### Uso diario (no entrenar aun)
+
+1. Usa Luna semanas/meses normal.
+2. Valora: `/buena` cuando suene a Luna, `/mala` cuando no, `/corregir <texto>` cuando quieras mostrarle como debio responder.
+3. Cuando tengas suficientes curados: `/dataset` genera `train.jsonl`/`validation.jsonl` listos para TRL/SFTTrainer. La calidad importa mas que la cantidad.
+
+### Tecnica recomendada
+
+LoRA/QLoRA, no full fine-tuning. Tu PC con RX 7700 XT 12GB + 32GB RAM puede con QLoRA 4-bit para 8B. Mantiene Qwen3 base intacto para comparar `Qwen3` vs `Qwen3 + Luna LoRA`.
+
+### Dataset `messages` para TRL
+
+```json
+{ "messages": [
+  { "role": "system", "content": "Eres Luna. Estado: confianza=45 (base 70)... Mantén coherencia..." },
+  { "role": "user", "content": "¿Que te pasa?" },
+  { "role": "assistant", "content": "No se... siento que siempre termino esperando por ti." }
+], "tipo": "expresion" }
+```
+
+Tipos: `personalidad` / `interpretacion` / `expresion` segun si hubo cambio de rasgos o solo expresion. Compatible con chat template de Qwen.
 
 ## Notas de rendimiento
 
