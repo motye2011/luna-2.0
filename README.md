@@ -1,4 +1,4 @@
-# Luna 2.0
+# Luna 2.0 Testing
 
 Companera virtual con personalidad emergente. 100% local via Ollama, sin APIs externas, sin dependencias.
 
