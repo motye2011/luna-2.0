@@ -10,6 +10,12 @@ const CONFIG = JSON.parse(readFileSync("config.json", "utf-8"));
 const MEMORY_FILE = "memoria.json";
 const REGISTRO_DIR = "registro";
 const REGISTRO_FILE = "registro/luna.jsonl";
+const REGISTRO_BRUTO = "registro/bruto/conversaciones.jsonl";
+const REGISTRO_APROBADO = "registro/evaluado/aprobado.jsonl";
+const REGISTRO_RECHAZADO = "registro/evaluado/rechazado.jsonl";
+
+let ultimoRegistro = null;
+let ultimaInteraccionMs = Date.now();
 
 const C = {
   reset: "\x1b[0m",
@@ -57,6 +63,38 @@ function guardarMemoria() {
   writeFileSync(MEMORY_FILE, JSON.stringify(memoria, null, 2), "utf-8");
 }
 
+function asegurarDirectoriosRegistro() {
+  for (const dir of ["registro/bruto", "registro/evaluado", "registro/dataset"]) {
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  }
+}
+asegurarDirectoriosRegistro();
+
+function calcularTiempoSinResponder() {
+  const ahora = Date.now();
+  const delta = Math.max(0, ahora - ultimaInteraccionMs);
+  ultimaInteraccionMs = ahora;
+  return Math.floor(delta / 1000);
+}
+
+function obtenerMemoriasRelevantes(limite = 3) {
+  return (memoria.eventos || []).slice(-limite).map((e) => e.id);
+}
+
+function construirSystemParaDataset(rasgosSnapshot, emocionesSnapshot, percepcionSnapshot) {
+  const rasgosStr = Object.entries(rasgosSnapshot || {})
+    .map(([k, v]) => `${k}=${v}`)
+    .join(", ");
+  const emocionesStr = emocionesSnapshot ? `${emocionesSnapshot.emoción} ${emocionesSnapshot.intensidad}/10` : "neutral";
+  const percepcionStr = percepcionSnapshot ? JSON.stringify(percepcionSnapshot) : "{}";
+  return [
+    `Eres Luna. Estado actual: [${rasgosStr}]`,
+    `Estado emocional: ${emocionesStr}`,
+    `Percepcion: ${percepcionStr}`,
+    `Responde manteniendo coherencia de personaje con ese estado.`,
+  ].join("\n");
+}
+
 function registrarEnBitacora(entrada) {
   try {
     if (!existsSync(REGISTRO_DIR)) mkdirSync(REGISTRO_DIR, { recursive: true });
@@ -64,6 +102,47 @@ function registrarEnBitacora(entrada) {
   } catch {
     // registrar nunca debe romper la conversación
   }
+}
+
+function guardarBruto(registro) {
+  try {
+    asegurarDirectoriosRegistro();
+    appendFileSync(REGISTRO_BRUTO, JSON.stringify(registro) + "\n", "utf-8");
+    ultimoRegistro = registro;
+  } catch {}
+}
+
+function valorarUltimo(aprobada, detalle = null) {
+  if (!ultimoRegistro) return null;
+  const valoracion = {
+    aprobada,
+    tipo: aprobada ? "buena" : "mala",
+    fecha: new Date().toISOString(),
+    ...(detalle ? { detalle } : {}),
+  };
+  const enriquecido = { ...ultimoRegistro, valoracion };
+  try {
+    const destino = aprobada ? REGISTRO_APROBADO : REGISTRO_RECHAZADO;
+    appendFileSync(destino, JSON.stringify(enriquecido) + "\n", "utf-8");
+  } catch {}
+  return valoracion;
+}
+
+function guardarCorreccion(textoCorregido) {
+  if (!ultimoRegistro) return null;
+  const registroCorregido = {
+    ...ultimoRegistro,
+    respuesta_original: ultimoRegistro.respuesta,
+    respuesta_corregida: textoCorregido,
+    respuesta: textoCorregido,
+    valoracion: { aprobada: true, tipo: "corregida", fecha: new Date().toISOString() },
+    corregida: true,
+  };
+  try {
+    appendFileSync(REGISTRO_APROBADO, JSON.stringify(registroCorregido) + "\n", "utf-8");
+    ultimoRegistro = registroCorregido;
+  } catch {}
+  return registroCorregido;
 }
 
 function listarRasgosCompletos() {
@@ -244,6 +323,14 @@ async function conversar(entradaUsuario, alStream = null, confirmarAccion = null
   }
 
   const asimilacion = datos.asimilacion;
+  const rasgosPre = Object.fromEntries(Object.entries(memoria.trazos ?? {}).map(([k, v]) => [k, v.valor]));
+  const rasgosBase = Object.fromEntries(Object.entries(memoria.trazos ?? {}).map(([k, v]) => [k, v.base]));
+  const emocionesPre = { ...memoria.estadoDeAnimo };
+  const percepcionSnapshot = {
+    ventanas: ventanasActivas(6),
+    tiempoSinResponder: calcularTiempoSinResponder(),
+  };
+  const historialParaDataset = memoria.historial.slice(-CONFIG.maxHistorial * 2).map((m) => ({ role: m.role, content: m.content }));
   const { episodioId, deltas } = aplicarAsimilacion(
     memoria,
     CONFIG,
@@ -274,16 +361,32 @@ async function conversar(entradaUsuario, alStream = null, confirmarAccion = null
   memoria.historial = memoria.historial.slice(-CONFIG.maxHistorial * 2);
   guardarMemoria();
 
-  registrarEnBitacora({
+  const rasgosPost = Object.fromEntries(Object.entries(memoria.trazos ?? {}).map(([k, v]) => [k, v.valor]));
+
+  const registroEnriquecido = {
     fecha: new Date().toISOString(),
-    percepcion: entradaUsuario,
-    estadoMundo: {
-      ventanas: ventanasActivas(6),
-      estadoAnimico: memoria.estadoDeAnimo,
+    id: episodioId,
+    mensajes: [
+      ...historialParaDataset.slice(-4),
+      { role: "user", content: entradaUsuario },
+    ],
+    contexto: {
+      percepcion: percepcionSnapshot,
+      emociones: emocionesPre,
+      rasgos: rasgosPre,
+      rasgosBase,
     },
-    interpretacion: datos.pensamiento ?? null,
+    memoriasRelevantes: obtenerMemoriasRelevantes(3),
+    interpretacion: {
+      significado: asimilacion?.interpretacion ?? datos.pensamiento ?? null,
+      intensidad: asimilacion?.intensidad ?? datos.intensidad ?? null,
+      emociones: asimilacion?.emociones ?? [],
+      sentido: asimilacion?.sentido ?? null,
+    },
+    pensamiento: datos.pensamiento ?? null,
     emocion: { emocion: datos.emoción ?? null, intensidad: datos.intensidad ?? null },
     respuesta: datos.respuesta ?? contenido,
+    respuestaOriginal: null,
     accion: datos.accion ?? null,
     resultadoAccion: accionResultado,
     asimilacion: {
@@ -294,8 +397,18 @@ async function conversar(entradaUsuario, alStream = null, confirmarAccion = null
       episodioId,
       deltas,
     },
-    rasgosPost: Object.fromEntries(Object.entries(memoria.trazos ?? {}).map(([k, v]) => [k, v.valor])),
-  });
+    rasgosPost,
+    // compatibilidad con formato anterior
+    percepcion: entradaUsuario,
+    estadoMundo: {
+      ventanas: percepcionSnapshot.ventanas,
+      estadoAnimico: emocionesPre,
+    },
+    valoracion: null,
+  };
+
+  registrarEnBitacora(registroEnriquecido);
+  guardarBruto(registroEnriquecido);
 
   return { datos, accionResultado, deltas };
 }
@@ -377,7 +490,18 @@ async function main() {
       process.exit(0);
     }
     if (entrada === "/ayuda") {
-      console.log(`${C.dim}/ayuda  — esta ayuda\n/reset  — borra toda la memoria\n/recuerdos — qué recuerda ${CONFIG.nombre} de ti\n/psique — su psique completa\n/explica <rasgo> — por qué tiene tal rasgo\n/salir  — terminar la charla${C.reset}`);
+      console.log(
+        `${C.dim}/ayuda  — esta ayuda\n` +
+          `/reset  — borra toda la memoria\n` +
+          `/recuerdos — qué recuerda ${CONFIG.nombre} de ti\n` +
+          `/psique — su psique completa\n` +
+          `/explica <rasgo> — por qué tiene tal rasgo\n` +
+          `/buena | /mala — valora la última respuesta (para dataset)\n` +
+          `/corregir <texto> — corrige la última respuesta de Luna\n` +
+          `/valorar <1-5> — valora calidad detallada\n` +
+          `/dataset — genera dataset train/validation\n` +
+          `/salir  — terminar la charla${C.reset}`
+      );
       continue;
     }
     if (entrada === "/reset") {
@@ -413,6 +537,46 @@ async function main() {
           console.log(explicacion.replace(/^/gm, "  "));
         }
       }
+      continue;
+    }
+    if (entrada === "/buena" || entrada === "👍") {
+      const v = valorarUltimo(true);
+      if (!v) console.log(`${C.dim}No hay respuesta reciente para valorar.${C.reset}`);
+      else console.log(`${C.green}✔ Marcada como buena. Ira a evaluado/aprobado.jsonl${C.reset}`);
+      continue;
+    }
+    if (entrada === "/mala" || entrada === "👎") {
+      const v = valorarUltimo(false);
+      if (!v) console.log(`${C.dim}No hay respuesta reciente para valorar.${C.reset}`);
+      else console.log(`${C.yellow}✔ Marcada como mala. Ira a evaluado/rechazado.jsonl${C.reset}`);
+      continue;
+    }
+    if (entrada.startsWith("/corregir")) {
+      const texto = entrada.replace("/corregir", "").trim();
+      if (!texto) {
+        console.log(`${C.dim}Uso: /corregir <texto correcto> — ej: /corregir Si estoy molesta, no queria admitirlo${C.reset}`);
+      } else {
+        const c = guardarCorreccion(texto);
+        if (!c) console.log(`${C.dim}No hay respuesta reciente para corregir.${C.reset}`);
+        else console.log(`${C.green}✔ Correccion guardada. Luna aprendera de esto: "${texto.slice(0, 80)}"${C.reset}`);
+      }
+      continue;
+    }
+    if (entrada.startsWith("/valorar")) {
+      const n = parseInt(entrada.replace("/valorar", "").trim(), 10);
+      if (!n || n < 1 || n > 5) {
+        console.log(`${C.dim}Uso: /valorar <1-5>  — 5 excelente, 1 pesima${C.reset}`);
+      } else {
+        const aprobada = n >= 4;
+        const v = valorarUltimo(aprobada, { calidad: n, escala: "1-5" });
+        if (!v) console.log(`${C.dim}No hay respuesta reciente para valorar.${C.reset}`);
+        else console.log(`${C.green}✔ Valorada ${n}/5 -> ${aprobada ? "aprobada" : "rechazada"}${C.reset}`);
+      }
+      continue;
+    }
+    if (entrada === "/dataset" || entrada === "/preparar-dataset") {
+      const { prepararDataset } = await import("./scripts/preparar_dataset.js");
+      await prepararDataset();
       continue;
     }
 
