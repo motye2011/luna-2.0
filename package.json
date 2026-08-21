@@ -1,0 +1,10 @@
+{
+  "name": "agente-amigo",
+  "version": "1.0.0",
+  "description": "Agente de IA con personalidad, emociones y memoria",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  }
+}
