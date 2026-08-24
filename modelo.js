@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { cpus } from "node:os";
 
 const CONFIG = JSON.parse(readFileSync("config.json", "utf-8"));
 const M = CONFIG.modelo || {};
@@ -42,7 +43,7 @@ async function intentar(mensajes, opciones) {
       temperature: opciones.temperature ?? TEMPERATURA_DEF,
       num_predict: opciones.maxTokens ?? MAX_TOKENS_DEF,
       num_ctx: M.numCtx ?? 8192,
-      num_threads: M.numThreads ?? 12,
+      num_threads: M.numThreads ?? cpus().length,
     },
     keep_alive: KEEP_ALIVE,
   };

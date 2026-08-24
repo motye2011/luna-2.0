@@ -8,7 +8,6 @@
     "timeoutMs": 240000,
     "think": false,
     "numCtx": 4096,
-    "numThreads": 12,
     "keepAlive": "30m",
     "temperature": 1.0,
     "maxTokens": 700
