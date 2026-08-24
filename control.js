@@ -1,4 +1,8 @@
 import { spawnSync } from "node:child_process";
+import { platform, loadavg, freemem, totalmem } from "node:os";
+
+const ES_WINDOWS = platform() === "win32";
+const FUERA_DEL_PC = "(sin percepción de ventanas: ahora mismo corro en un servidor remoto, no en tu PC)";
 
 export const ACCIONES_VALIDAS = new Set(["cerrar_aplicacion", "abrir_aplicacion", "estado_sistema"]);
 
@@ -38,6 +42,7 @@ function runPS(comando) {
 }
 
 export function ventanasActivas(limite = 20) {
+  if (!ES_WINDOWS) return FUERA_DEL_PC;
   const salida = runPS(
     `Get-Process | Where-Object { $_.MainWindowTitle } | Select-Object -First ${limite} | ForEach-Object { "$($_.ProcessName) - $($_.MainWindowTitle)" }`
   );
@@ -45,6 +50,11 @@ export function ventanasActivas(limite = 20) {
 }
 
 export function estadoSistema() {
+  if (!ES_WINDOWS) {
+    const carga = loadavg()[0].toFixed(2);
+    const ram = `${(freemem() / 1024 ** 3).toFixed(1)}GB libre de ${(totalmem() / 1024 ** 3).toFixed(1)}GB`;
+    return `CPU carga ${carga} · RAM ${ram} (servidor)`;
+  }
   const cpu = runPS("(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average");
   const ram = runPS(
     "$os = Get-CimInstance Win32_OperatingSystem; '{0:0.#}GB libre de {1:0.#}GB' -f ($os.FreePhysicalMemory/1MB), ($os.TotalVisibleMemorySize/1MB)"
@@ -53,6 +63,7 @@ export function estadoSistema() {
 }
 
 export function cerrarAplicacion(objetivo) {
+  if (!ES_WINDOWS) return "No puedo tocar tu PC desde aquí: vivo en un servidor remoto, no en tu equipo.";
   const limpio = String(objetivo ?? "").trim().slice(0, 60);
   if (!limpio) return "No indicaste qué aplicación cerrar.";
 
@@ -107,6 +118,7 @@ function lanzarProceso(ruta, nombreProceso) {
 const PROCESO = { spotify: "Spotify", winword: "WINWORD", powerpnt: "POWERPNT", calc: "CalculatorApp" };
 
 export function abrirAplicacion(objetivo) {
+  if (!ES_WINDOWS) return "No puedo abrir nada en tu PC desde aquí: vivo en un servidor remoto, no en tu equipo.";
   let limpio = String(objetivo ?? "").trim().toLowerCase().slice(0, 60);
   if (!limpio) return "¿Qué quieres que abra?";
 
