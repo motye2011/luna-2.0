@@ -59,7 +59,7 @@ Unica interfaz al LLM: `llamarModelo(mensajes, { formatoJson, stream, onToken })
 * **Ollama** instalado y corriendo: https://ollama.com
 * Modelo `qwen3:8b` (Q4_K_M, ~5.2 GB): `ollama pull qwen3:8b`
 * 16 GB RAM recomendado. Probado en Ryzen 5 5600G single-channel: ~3-5 tok/s con `qwen3:8b`.
-* Windows 10/11 (acciones usan PowerShell).
+* Windows 10/11 (acciones usan PowerShell). Tambien corre en servidores Linux (Oracle, VPS): ver [DEPLOY_ORACLE.md](DEPLOY_ORACLE.md).
 
 ## Instalacion
 

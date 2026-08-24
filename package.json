@@ -4,6 +4,9 @@
   "description": "Agente de IA con personalidad, emociones y memoria",
   "type": "module",
   "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node index.js"
   }
