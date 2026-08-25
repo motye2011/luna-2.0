@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'" />
+  <title>Luna</title>
+  <link rel="stylesheet" href="estilos.css" />
+</head>
+<body>
+  <div id="pantalla-inicio" class="pantalla">
+    <div class="tarjeta-inicio">
+      <div class="logo">🌙</div>
+      <h1>Luna</h1>
+      <p class="sub">Conéctate con ella</p>
+      <label for="inp-url">Servidor</label>
+      <input id="inp-url" placeholder="http://IP-DEL-SERVIDOR:8787" spellcheck="false" />
+      <label for="inp-clave">Clave</label>
+      <input id="inp-clave" type="password" placeholder="clave del servidor" />
+      <div id="err-inicio" class="error"></div>
+      <button id="btn-conectar">Conectar</button>
+      <p class="pie">En el servidor debe estar corriendo <code>node servidor.js</code></p>
+    </div>
+  </div>
+
+  <div id="pantalla-chat" class="pantalla oculta">
+    <header>
+      <div class="titulo">
+        <span id="dot" class="dot apagado"></span>
+        <span class="nombre">🌙 Luna</span>
+        <span id="animico" class="animico"></span>
+      </div>
+      <div class="acciones">
+        <button id="btn-recuerdos" title="Qué recuerda de ti">📜</button>
+        <button id="btn-reset" title="Olvidar todo">🧹</button>
+        <button id="btn-desconectar" title="Desconectar">✕</button>
+      </div>
+    </header>
+    <main id="mensajes"></main>
+    <footer>
+      <input id="inp-mensaje" placeholder="Escríbele a Luna..." autocomplete="off" maxlength="4000" />
+      <button id="btn-enviar" title="Enviar">➤</button>
+    </footer>
+  </div>
+
+  <script src="ui.js"></script>
+</body>
+</html>
