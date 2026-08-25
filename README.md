@@ -1,47 +1,60 @@
-# Luna 2.0 Testing
+# Luna 2.0
 
-Companera virtual con personalidad emergente. Corre via Ollama, sin APIs externas, sin dependencias.
+Luna no es un asistente. Es una companera virtual con personalidad emergente: memoria, emociones y 18 rasgos que evolucionan segun lo que vive contigo. Cada conversacion deja huella y cada huella es rastreable: si le preguntas "por que estas tan desconfiada?", puede citar el hecho concreto que la marco.
 
-Luna no es una asistente. Es una persona con memoria, emociones y rasgos que evolucionan segun lo que vive contigo. Cada conversacion deja huella y esa huella es rastreable.
+Corre sobre Ollama, sin APIs externas, sin claves de terceros y sin dependencias externas de Node.
 
-Tres formas de usarla:
+---
 
-* **CLI local** (`node index.js`): chat en tu terminal, con control real de tu PC (Windows).
-* **Servidor** (`node servidor.js`): la API de Luna en un servidor (Oracle, VPS) o en tu PC.
-* **App de escritorio** (`app/dist/Luna.exe`): chat con pantalla de inicio, conectada al servidor.
+## El principio: un solo servidor, muchas ventanas
 
-## Enfoque del proyecto
+> **Estado actual:** el servidor todavia no existe. Mientras tanto, Luna corre en local (modo desarrollo).
+>
+> **Cuando exista:** TODO se regira desde el servidor. Ahi vivera la Luna real — su memoria, su psique y su modelo. Los clientes (la app de escritorio, la CLI) seran solo ventanas para hablar con ella. Nadie tendra una "copia propia": si le dices algo desde el movil o desde otro PC, es la misma Luna la que recuerda, siente y cambia.
 
-La mayoria de IAs responden con guiones fijos o prompts estaticos. Luna hace lo opuesto:
+```
+                    ┌──────────────────────────────┐
+                    │         SERVIDOR             │
+                    │   (Oracle / VPS / tu PC)     │
+                    │                              │
+   app Luna.exe ───►│  servidor.js (API + clave)   │
+                    │      │                       │
+   CLI remota ─────►│      ▼                       │
+                    │  index.js + psique.js        │
+                    │  memoria.json  registro/     │
+                    │      │                       │
+                    │      ▼                       │
+                    │  Ollama (qwen3:8b)           │
+                    └──────────────────────────────┘
+```
 
-* **Personalidad emergente, no escrita.** No hay `if celos + 10`. Hay 18 rasgos numericos (0-100) con valor base y valor actual que se desplazan solo por episodios reales. Si te pregunta "por que estas tan desconfiada?" puede citar el hecho concreto que la marco.
-* **Causalidad obligatoria.** Todo cambio de rasgo requiere un `motivo` que cite algo que dijiste. Sin episodio real, no hay delta. La anti-invencion esta reforzada en el prompt y acotada en codigo.
-* **Memoria como historia vivida.** Hechos del usuario, resumen en primera persona, historial reciente, eventos con deltas y emociones, vinculos por entidad y patrones tras repeticion. La compactacion preserva lo importante cuando el historial crece.
-* **Permisos con consentimiento.** Luna puede actuar en tu PC, pero solo lo hace cuando su caracter se lo pide y, para acciones con impacto, te pide confirmacion.
-* **Local y privado.** Todo corre en tu maquina. Sin `openai`, sin `dotenv`, sin keys. Preparado para fine-tuning con dataset curado a partir de `registro/`.
+* La **memoria** (`memoria.json`) y el **registro** viven solo en el servidor.
+* **Ollama nunca se expone** a internet: solo la API de Luna, protegida con clave.
+* Un cliente sin el servidor no es Luna: es una ventana vacia.
+
+---
 
 ## Como funciona
 
 ```
-percepcion (tu mensaje + ventanas activas)
+percepcion (tu mensaje + contexto del sistema)
   -> interpretacion (pensamiento interno del modelo)
   -> emocion (emocion + intensidad)
   -> memoria (hechos, resumen)
   -> rasgos (deltas acotados)
   -> decision / comportamiento (respuesta + accion opcional)
-  -> asimilacion embebida (mismo turno, 1 llamada al modelo)
+  -> asimilacion embebida (mismo turno, 1 sola llamada al modelo)
 ```
 
 ### Psique (`psique.js`)
 
 * **18 rasgos:** 6 ancla (`curiosidad`, `amabilidad`, `sentidoDelHumor`, `empatia`, `energia`, `sociabilidad`) + 12 desarrollados (`confianza`, `inseguridad`, `afecto`, `celos`, `posesividad`, `desconfianza`, `resentimiento`, `paciencia`, `sensibilidad`, `agresividadVerbal`, `dependenciaEmocional`, `independencia`). Cada uno guarda `{ base, valor, causas[] }`.
 * **Deltas acotados:** `delta = maxDelta * (intensidad/10) * sensibilidad * saturacion * factorEstado * habituacion`. Saturacion frena extremos, `factorEstado` modula (ej. baja confianza amplifica celos), habituacion atenua la repeticion del mismo tipo de evento, `reparacion` acelera la recuperacion de rasgos negativos tras experiencias positivas.
-* **Decaimiento:** ~3% por dia hacia la base. Evita rasgos congelados en extremos y hace que la personalidad respire.
-* **Episodios:** `memoria.eventos[]` con `{ id, fecha, tipo, contexto, interpretacion, emociones, deltas, entidad }`. Limite 300, causas por rasgo limitadas a 12 (las mas recientes).
-* **Vinculos emocionales:** `memoria.vinculos[entidad] = { valencia (-1..1), intensidad, episodios[] }`. Entidades genericas como "usuario" se filtran; se normaliza a minusculas.
-* **Relacion:** `memoria.relacion` con `conocidosDesde`, `conflictos`, `reconciliaciones`.
-* **Patrones:** `generarPatrones()` se ejecuta cada turno. Tras `umbralCambio` (3) repeticiones de un tipo/entidad genera patrones legibles en `memoria.patrones[]`.
-* **Inyeccion al prompt:** Luna recibe sus valores actuales, las ultimas causas por rasgo ("POR QUE eres como eres"), vinculos y patrones, para poder citarlos en conversacion.
+* **Decaimiento:** ~3% por dia hacia la base. La personalidad respira; nada se queda congelado en extremos.
+* **Episodios:** `memoria.eventos[]` con `{ id, fecha, tipo, contexto, interpretacion, emociones, deltas, entidad }`.
+* **Vinculos emocionales:** `memoria.vinculos[entidad] = { valencia (-1..1), intensidad, episodios[] }`.
+* **Patrones:** tras 3 repeticiones de un mismo tipo de episodio, Luna "aprende" un patron legible en `memoria.patrones[]`.
+* **Causalidad obligatoria:** todo cambio de rasgo exige un `motivo` que cite algo que dijiste. Sin episodio real no hay delta. La anti-invencion esta reforzada en el prompt y acotada en codigo.
 
 ### Acciones y permisos (`control.js`)
 
@@ -51,260 +64,148 @@ percepcion (tu mensaje + ventanas activas)
 | `abrir_aplicacion` | cambiar_sistema | si |
 | `cerrar_aplicacion` | cambiar_sistema | si |
 
-Apps conocidas para abrir: notas, calculadora, explorador, navegador, chrome, terminal, spotify, word, powerpoint. Procesos del sistema en `PROTEGIDOS` nunca se cierran.
-
-El flujo de confirmacion se maneja en `index.js`: si la accion requiere confirmacion, te pregunta `Luna quiere cerrar "valorant". Se lo permites? (si/no)`.
-
-`control.js` detecta la plataforma: en Windows hace acciones reales; en un servidor Linux `estado_sistema` reporta la CPU/RAM del servidor y abrir/cerrar responde con un aviso claro (Luna no puede tocar tu PC desde ahi).
+* En **Windows** son acciones reales sobre tu PC (PowerShell), con confirmacion para las de impacto y procesos del sistema protegidos.
+* En un **servidor Linux** Luna no puede tocar tu PC: `estado_sistema` reporta el servidor y abrir/cerrar responde con un aviso honesto.
 
 ### Modelo (`modelo.js`)
 
-Unica interfaz al LLM: `llamarModelo(mensajes, { formatoJson, stream, onToken })`. Usa `fetch` nativo contra `http://localhost:11434` (Ollama), con `format: json`, `think: false`, streaming NDJSON, reintentos y `verificarModelo()` al arranque. `index.js` no conoce proveedor ni keys. Cambiar de modelo es solo editar `config.json`. Los hilos (`num_threads`) se ajustan solos a los cores del equipo si no se definen en `config.json`.
+Unica interfaz al LLM: `llamarModelo()` contra Ollama, con `format: json`, `think: false`, streaming NDJSON, reintentos y verificacion al arranque. Los hilos se ajustan solos a los cores del equipo. Cambiar de modelo es editar una linea de `config.json`.
 
 ### Servidor (`servidor.js`)
 
-API HTTP (cero dependencias, `node:http`) que expone a Luna para la app de escritorio. La memoria y la psique viven donde corre el servidor; Ollama nunca se expone a internet.
+API HTTP (cero dependencias) que expone a Luna. La memoria y la psique viven donde corre el servidor.
 
 | Ruta | Metodo | Que hace |
 |---|---|---|
-| `/api/estado` | GET | Animo, rasgos con mayor desvio, nº de recuerdos y estado de Ollama |
-| `/api/chat` | POST | Conversa con Luna. Responde NDJSON en streaming: `{tipo:"token"}` parciales y `{tipo:"final"}` con respuesta, emocion, pensamiento, deltas y accion |
-| `/api/recuerdos` | GET | Hechos que Luna recuerda del usuario |
-| `/api/reset` | POST | Borra toda la memoria y vuelve a la psique base |
+| `/api/estado` | GET | Animo, rasgos con mayor desvio, recuerdos y estado de Ollama |
+| `/api/chat` | POST | Conversa con Luna; responde NDJSON en streaming (`token` parciales + `final`) |
+| `/api/recuerdos` | GET | Hechos que Luna recuerda de ti |
+| `/api/reset` | POST | Olvida todo y vuelve a la psique base |
 
-* **Clave obligatoria**: cabecera `x-luna-clave` en todas las rutas (comparacion timing-safe). Se lee de `LUNA_CLAVE`, de `servidor.clave` en `config.json` o se genera una aleatoria y se guarda en `clave-servidor.local` (gitignored).
-* **Una conversacion a la vez**: las peticiones se encolan para que dos clientes nunca corrompan `memoria.json`.
-* **Puerto**: `servidor.puerto` en `config.json` (8787 por defecto) o `LUNA_PUERTO`.
+Clave obligatoria (cabecera `x-luna-clave`, comparacion timing-safe), peticiones encoladas de una en una para que la memoria nunca se corrompa.
+
+### App de escritorio (`app/`)
+
+Electron sin dependencias de runtime: pantalla de inicio (URL del servidor + clave) y chat con streaming, pensamientos, emocion y cambios de rasgos en vivo. El exe portable se descarga en [Releases](https://github.com/motye2011/luna-2.0/releases).
+
+---
 
 ## Requisitos
 
-* **Node.js 18+** (ESM, `fetch` nativo, `readline/promises`)
-* **Ollama** instalado y corriendo: https://ollama.com
-* Modelo `qwen3:8b` (Q4_K_M, ~5.2 GB): `ollama pull qwen3:8b`
-* 16 GB RAM recomendado. Probado en Ryzen 5 5600G single-channel: ~3-5 tok/s con `qwen3:8b`.
-* Windows 10/11 (acciones usan PowerShell). Tambien corre en servidores Linux (Oracle, VPS): ver [DEPLOY_ORACLE.md](DEPLOY_ORACLE.md).
+* **Node.js 18+** y **Ollama** (https://ollama.com) con el modelo de `config.json` (`ollama pull qwen3:8b`, ~5.2 GB).
+* **16 GB RAM** recomendado para `qwen3:8b`. En CPU: ~3-5 tok/s.
+* CLI con acciones de PC: **Windows 10/11**. Servidor y app: **Linux/Windows**.
 
-## Instalacion
+## Mientras no hay servidor (local, desarrollo)
 
 ```powershell
 git clone https://github.com/motye2011/luna-2.0.git
 cd luna-2.0
-
-# sin dependencias externas, solo Node
-# si vienes de una version anterior con node_modules:
-# Remove-Item node_modules -Recurse -Force
-
 ollama pull qwen3:8b
-ollama serve   # en otra terminal, o deja Ollama abierto desde el menu inicio
+
+node index.js        # CLI: chat en la terminal
+node servidor.js     # API local para probar la app (imprime la clave)
 ```
 
-## Uso
-
-Asegurate de que Ollama este corriendo antes de abrir a Luna.
+Para generar el exe de la app:
 
 ```powershell
-# PowerShell (si npm.ps1 esta bloqueado por ExecutionPolicy)
-npm.cmd start
-# o directo
-node index.js
+cd app
+npm install
+npm run dist         # genera app/dist/Luna.exe (portable)
 ```
 
-Si `npm start` falla con `PSSecurityException`:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-Luna muestra su estado de animo al volver y queda escuchando en `Tu:`.
-
-### Comandos
+### Comandos de la CLI
 
 | Comando | Que hace |
 |---|---|
 | `/ayuda` | Lista de comandos |
 | `/recuerdos` | Hechos que Luna recuerda de ti |
-| `/psique` | Rasgos actuales vs base con causas, vinculos, patrones y ultimos episodios |
-| `/explica <rasgo>` | Por que tiene tal valor un rasgo concreto (ej. `/explica confianza`) |
-| `/buena` `👍` | Marca la ultima respuesta como buena (va a `evaluado/aprobado.jsonl`) |
-| `/mala` `👎` | Marca la ultima respuesta como mala (va a `evaluado/rechazado.jsonl`) |
-| `/valorar 1-5` | Valoracion rapida 1-5 (4-5 aprueba, 1-3 rechaza) |
-| `/corregir <texto>` | Corrige la ultima respuesta: guarda `respuesta_original` + `respuesta_corregida` como ejemplo aprobado |
-| `/dataset` | Genera `registro/dataset/train.jsonl` + `validation.jsonl` a partir de lo aprobado |
-| `/reset` | Borra toda la memoria y vuelve a la psique base |
+| `/psique` | Rasgos vs base con causas, vinculos, patrones y episodios |
+| `/explica <rasgo>` | Por que tiene tal valor un rasgo (ej. `/explica confianza`) |
+| `/buena` `👍` / `/mala` `👎` | Valora la ultima respuesta (va a `registro/evaluado/`) |
+| `/valorar 1-5` | Valoracion rapida |
+| `/corregir <texto>` | Ensenale como debio responder |
+| `/dataset` | Genera el dataset de fine-tuning con lo aprobado |
+| `/reset` | Olvida todo |
 | `/salir` | Guarda y cierra |
 
-Durante la charla, tras cada respuesta veras si Luna cambio por dentro:
+## Cuando haya servidor (Oracle)
 
-```
-Luna cambio: afecto +3, sensibilidad +4
+Guia completa paso a paso en **[DEPLOY_ORACLE.md](DEPLOY_ORACLE.md)**. Resumen:
+
+```bash
+# en el servidor (Ubuntu, instancia gratuita Oracle A1: 4 cores ARM + 24 GB RAM)
+git clone https://github.com/motye2011/luna-2.0.git && cd luna-2.0
+bash deploy/setup-oracle.sh   # instala Node 20 + Ollama + modelo
+tmux new -s api
+node servidor.js              # la Luna real vive aqui
 ```
 
-Preguntale directamente "por que estas tan celosa?" y citara episodios reales.
+Despues: abrir el puerto 8787 (Security List + iptables, esta en la guia), y en la app `Luna.exe` poner `http://IP:8787` + la clave impresa por el servidor. Para trafico cifrado, tunel SSH (`ssh -L 8787:localhost:8787 ...`) y `http://localhost:8787` en la app.
+
+Desde ese momento, la memoria vive SOLO en el servidor. Copias de seguridad: `scp` de `memoria.json` (detallado en la guia).
 
 ## Configuracion (`config.json`)
 
 ```json
 {
-  "modelo": {
-    "proveedor": "ollama",
-    "modelo": "qwen3:8b",
-    "baseURL": "http://localhost:11434",
-    "temperature": 1.0,
-    "maxTokens": 700,
-    "numCtx": 4096
-  },
+  "modelo": { "modelo": "qwen3:8b", "baseURL": "http://localhost:11434", "temperature": 1.0, "maxTokens": 700, "numCtx": 4096 },
   "maxHistorial": 12,
   "servidor": { "puerto": 8787 },
-  "psique": {
-    "sensibilidad": 1.0,
-    "decaimiento": 0.03,
-    "maxDelta": 6,
-    "umbralCambio": 3
-  },
-  "rasgosIniciales": { "curiosidad": 75, ... }
+  "psique": { "sensibilidad": 1.0, "decaimiento": 0.03, "maxDelta": 6, "umbralCambio": 3 },
+  "rasgosIniciales": { "curiosidad": 75, "...": "..." }
 }
 ```
 
-* `temperature 1.0` da espontaneidad; bajalo si quieres respuestas mas deterministas.
-* `maxTokens 700` da margen para `pensamiento + respuesta + asimilacion`.
-* `numCtx 4096` es el equilibrio velocidad/memoria en single-channel. Subirlo a 8192 cabe pero es mas lento.
-* `maxHistorial 12` = 24 mensajes recientes en contexto; el resto se compacta a `memoria.resumen`.
-* `numThreads` ya no hace falta: si no esta, se usan todos los cores del equipo.
-
-Cambiar de modelo es solo cambiar `modelo.modelo` (ej. `qwen2.5:7b` es mas rapido pero peor en espanol/roleplay).
-
-## App de escritorio (exe)
-
-Chat con pantalla de inicio (URL del servidor + clave) y chat con streaming, en Electron sin dependencias de runtime.
-
-```
-cd app
-npm install
-npm run dist      # genera app/dist/Luna.exe (portable, sin instalacion)
-```
-
-* **Pantalla de inicio**: URL (`http://IP:8787`) y clave del servidor. La conexion queda guardada (`userData/luna-conexion.json`).
-* **Chat**: burbujas, respuesta en vivo letra a letra, pensamiento interno de Luna, emocion e intensidad, chips con los cambios de rasgos del turno.
-* **Header**: punto verde/rojo segun Ollama, estado de animo en vivo.
-* **Botones**: recuerdos (`/recuerdos`), olvidar todo (`/reset`) y desconectar.
-
-Para probarlo sin servidor: `npm run servidor` en la raiz y conecta el exe a `http://localhost:8787`. Despliegue completo en Oracle: [DEPLOY_ORACLE.md](DEPLOY_ORACLE.md).
+* `temperature 1.0` da espontaneidad; bajalo para respuestas mas estables.
+* `maxHistorial 12` = 24 mensajes recientes; lo viejo se compacta a `memoria.resumen`.
+* `servidor.puerto`: puerto de la API. La clave se lee de `LUNA_CLAVE`, de `servidor.clave` o se genera sola en `clave-servidor.local`.
+* Modelo mas ligero para CPU modesta: `qwen3:4b`.
 
 ## Estructura
 
 ```
-index.js                      # orquestador, prompt, conversar(), comandos
+index.js                      # orquestador, prompt, conversar(), comandos CLI
 psique.js                     # motor de rasgos, episodios, vinculos, patrones
-control.js                    # acciones reales (Windows) / avisos honestos (servidor)
+control.js                    # acciones de PC (Windows) / avisos (servidor)
 modelo.js                     # cliente Ollama (unico punto de acceso al LLM)
-servidor.js                   # API HTTP con clave para la app de escritorio
-config.json                   # personalidad, modelo, psique, rasgos iniciales
+servidor.js                   # API HTTP con clave para los clientes
+config.json                   # personalidad, modelo, psique
 memoria.json                  # estado persistente (gitignored, privado)
 clave-servidor.local          # clave de la API (generada sola, gitignored)
-deploy/setup-oracle.sh        # instala Node + Ollama + modelo en el servidor
-app/                          # app de escritorio Electron (login + chat)
-  main.js / preload.js        # proceso principal e IPC
-  index.html / ui.js / estilos.css  # interfaz de chat
-registro/luna.jsonl           # bitacora legacy (compatibilidad)
-registro/bruto/conversaciones.jsonl  # registro enriquecido por turno (privado)
-registro/evaluado/aprobado.jsonl     # solo respuestas valoradas como buenas
-registro/evaluado/rechazado.jsonl    # respuestas marcadas como malas
-registro/dataset/train.jsonl         # dataset final messages para TRL
-registro/dataset/validation.jsonl    # split validacion
-scripts/preparar_dataset.js   # convierte evaluado -> dataset
+deploy/setup-oracle.sh        # preparacion automatica del servidor
+app/                          # app Electron: login + chat -> Luna.exe
+scripts/preparar_dataset.js   # evaluado -> dataset de fine-tuning
+registro/                     # bitacoras privadas (gitignored)
+DEPLOY_ORACLE.md              # guia de despliegue en servidor
 ```
 
 ## Privacidad
 
-Todo corre en tu maquina o en TU servidor: `index.js` no importa `openai`, `dotenv` ni lee `.env`. `memoria.json`, `registro/` y `clave-servidor.local` estan en `.gitignore` a proposito: contienen tu vida privada. No se suben a GitHub. Si clonas el repo en otra maquina, Luna empieza con psique base. La API del servidor pide clave en todas las rutas; para trafico cifrado usa el tunel SSH descrito en [DEPLOY_ORACLE.md](DEPLOY_ORACLE.md).
+Luna vive en TU maquina o en TU servidor. Sin `openai`, sin `dotenv`, sin claves de terceros. `memoria.json`, `registro/` y `clave-servidor.local` estan en `.gitignore` a proposito: contienen tu vida privada y no se suben a GitHub. La API exige clave en todas las rutas y Ollama nunca sale a internet.
 
 ## Fine-tuning
 
-No se entrena `Si X -> responde Y`. Se entrenan patrones de comportamiento.
-
-### Que aprende
-
-* Como habla Luna, cuando ser carinosa/fria, como expresar enojo/celos, como reaccionar ante conflictos, como disculparse, como interpretar situaciones segun su estado, como mantener coherencia de personaje.
-
-### Separacion programa / modelo
-
-```
-           LUNA
-             |
-  +----------+----------+
-  |                     |
-PROGRAMA              MODELO
-Memoria               Lenguaje
-Emociones             Expresion
-Rasgos                Interpretacion
-Percepcion            Comportamiento
-Permisos
-```
-
-No se mete `Luna sabe que Daniel juega Valorant` en el modelo. Eso es memoria. Se entrena `cuando Luna recibe estado X + recuerdos relevantes Y, sabe como reaccionar`.
-
-### Pipeline
+No se entrena `Si X -> responde Y`: se entrenan patrones de comportamiento, con LoRA/QLoRA sobre el modelo base intacto.
 
 ```
 registro/bruto/conversaciones.jsonl   # todo turno con contexto completo
         |  /buena /mala /corregir
         v
-registro/evaluado/aprobado.jsonl      # solo buenas + corregidas (curado por ti)
-        |  /dataset o node scripts/preparar_dataset.js
+registro/evaluado/aprobado.jsonl      # solo lo que TUI curaste
+        |  /dataset
         v
-registro/dataset/train.jsonl          # { messages: [system, user, assistant], tipo, meta }
-registro/dataset/validation.jsonl
-        |
+registro/dataset/train.jsonl          # messages para TRL/SFTTrainer
         v
-  Qwen3 8B + LoRA/QLoRA -> Ollama (modelo base intacto, adaptador Luna)
+  Qwen3 + LoRA "Luna" -> Ollama
 ```
 
-### Formato enriquecido (por turno)
+Uso diario: valora respuestas (`/buena`, `/mala`, `/corregir`) durante semanas; cuando haya suficiente material curado, `/dataset` genera el train/validation listos para entrenar.
 
-```json
-{
-  "fecha": "2026-08-21T10:30:00",
-  "mensajes": [{ "role": "user", "content": "¿Por que estas tan distante?" }],
-  "contexto": {
-    "percepcion": { "ventanas": "...", "tiempoSinResponder": 7200 },
-    "emociones": { "emoción": "tristeza", "intensidad": 6 },
-    "rasgos": { "confianza": 45, "inseguridad": 62, "celos": 35 }
-  },
-  "memoriasRelevantes": ["episodio_21", "episodio_25"],
-  "interpretacion": { "significado": "Daniel ha estado distante", "sentido": "negativo" },
-  "respuesta": "Ultimamente siento que estas distante...",
-  "accion": null,
-  "valoracion": { "aprobada": true, "tipo": "buena" }
-}
-```
+## Rendimiento
 
-Correccion guarda `respuesta_original` + `respuesta_corregida`. Solo lo aprobado entra al dataset. Sin valoracion no hay entrenamiento de basura.
-
-### Uso diario (no entrenar aun)
-
-1. Usa Luna semanas/meses normal.
-2. Valora: `/buena` cuando suene a Luna, `/mala` cuando no, `/corregir <texto>` cuando quieras mostrarle como debio responder.
-3. Cuando tengas suficientes curados: `/dataset` genera `train.jsonl`/`validation.jsonl` listos para TRL/SFTTrainer. La calidad importa mas que la cantidad.
-
-### Tecnica recomendada
-
-LoRA/QLoRA, no full fine-tuning. Tu PC con RX 7700 XT 12GB + 32GB RAM puede con QLoRA 4-bit para 8B. Mantiene Qwen3 base intacto para comparar `Qwen3` vs `Qwen3 + Luna LoRA`.
-
-### Dataset `messages` para TRL
-
-```json
-{ "messages": [
-  { "role": "system", "content": "Eres Luna. Estado: confianza=45 (base 70)... Mantén coherencia..." },
-  { "role": "user", "content": "¿Que te pasa?" },
-  { "role": "assistant", "content": "No se... siento que siempre termino esperando por ti." }
-], "tipo": "expresion" }
-```
-
-Tipos: `personalidad` / `interpretacion` / `expresion` segun si hubo cambio de rasgos o solo expresion. Compatible con chat template de Qwen.
-
-## Notas de rendimiento
-
-Con `qwen3:8b` en 16 GB single-channel veras `~1-2 min` por respuesta larga y streaming letra a letra. Es normal. Tras el primer mensaje Ollama mantiene el modelo en VRAM/RAM con `keepAlive: 30m`, los siguientes son mas rapidos.
+Con `qwen3:8b` en CPU espera ~3-5 tok/s: respuestas largas de 1-2 min con streaming letra a letra. Es normal. Tras el primer mensaje, Ollama mantiene el modelo cargado (`keepAlive: 30m`) y todo va mas rapido.
 
 ## Licencia
 
