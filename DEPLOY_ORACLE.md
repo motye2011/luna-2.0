@@ -67,6 +67,55 @@ scp memoria.json ubuntu@IP_PUBLICA:~/luna-2.0/
 scp ubuntu@IP_PUBLICA:~/luna-2.0/memoria.json ./backup-memoria.json
 ```
 
+## 6. App de escritorio (Luna.exe)
+
+La app de chat (carpeta `app/`) se conecta a la **API** que expone `servidor.js`
+en el puerto `8787`. La memoria y la psique viven en el servidor; el exe solo
+es la ventana.
+
+### En el servidor: abrir la API
+
+```bash
+cd ~/luna-2.0
+tmux new -s api
+node servidor.js
+# muestra la clave de acceso (también queda en clave-servidor.local)
+# Ctrl+B, D para dejarlo corriendo
+```
+
+Abre el puerto en Oracle: **Security List → Add Ingress Rule** (TCP, puerto
+`8787`, origen `0.0.0.0/0`) y en la propia máquina:
+
+```bash
+sudo iptables -I INPUT -p tcp --dport 8787 -j ACCEPT
+sudo netfilter-persistent save   # o iptables-persistent si lo pide
+```
+
+> Oracle bloquea por iptables ADEMÁS de la Security List: hay que abrir en
+> ambos sitios o la app no conectará.
+
+### En tu PC: generar el exe
+
+```powershell
+cd app
+npm install
+npm run dist     # genera dist\Luna.exe (portable, sin instalación)
+```
+
+Abre `Luna.exe`, pon `http://IP_PUBLICA:8787` y la clave que imprimió el
+servidor. La conexión queda guardada para las próximas veces.
+
+### Seguridad
+
+La API va por HTTP sin cifrar: la clave viaja en claro. Para uso serio usa un
+túnel SSH y no abras el puerto:
+
+```powershell
+ssh -L 8787:localhost:8787 -i tu_clave.key ubuntu@IP_PUBLICA
+```
+
+y en la app usa `http://localhost:8787`. Todo va cifrado por el túnel.
+
 ## Notas
 
 - **Velocidad**: sin GPU, espera ~2-5 tok/s. Es lo normal en CPU.
