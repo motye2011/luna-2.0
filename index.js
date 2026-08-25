@@ -63,6 +63,11 @@ function guardarMemoria() {
   writeFileSync(MEMORY_FILE, JSON.stringify(memoria, null, 2), "utf-8");
 }
 
+function reiniciarMemoria() {
+  memoria = emptyMemory();
+  guardarMemoria();
+}
+
 function asegurarDirectoriosRegistro() {
   for (const dir of ["registro/bruto", "registro/evaluado", "registro/dataset"]) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -618,7 +623,7 @@ async function main() {
   }
 }
 
-export { construirPromptSistema, conversar, mostrarPsique, guardarMemoria, memoria };
+export { construirPromptSistema, conversar, mostrarPsique, guardarMemoria, reiniciarMemoria, memoria };
 
 const ES_ENTRADA_PRINCIPAL = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (ES_ENTRADA_PRINCIPAL) main();

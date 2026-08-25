@@ -8,6 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "servidor": "node servidor.js"
   }
 }

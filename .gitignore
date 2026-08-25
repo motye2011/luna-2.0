@@ -2,3 +2,6 @@ node_modules/
 .env
 registro/
 memoria.json
+clave-servidor.local
+app/node_modules/
+app/dist/
